@@ -1,1 +1,5 @@
 __pycache__/*
+.venv/
+frames/
+sf_geocolor.png
+preview.html
