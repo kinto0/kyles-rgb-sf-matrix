@@ -26,7 +26,7 @@ while True:
 
     for _ in range(playback.PLAYS_BEFORE_REFRESH):
         print(f"playing {playback.PLAYS_BEFORE_REFRESH} times")
-        for i, image in frames.enumerate():
+        for i, image in enumerate(frames):
             print(f"switching frames {i} of {len(frames)}")
             canvas.SetImage(image, 0, 0)
             canvas = matrix.SwapOnVSync(canvas)
