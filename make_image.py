@@ -18,7 +18,7 @@ from typing import List
 import math
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timezone
 from io import BytesIO
 
 import requests
@@ -67,10 +67,11 @@ def bbox_for_point(lat: float, lon: float, half_w_km: float, half_h_km: float) -
     return f"{xmin},{ymin},{xmax},{ymax}"
 
 
-def list_frame_times() -> List[int]:
-    """Return unique raster start times (unix ms) from the 24h archive, oldest first."""
+def list_frame_times(after_time_ms: int) -> List[int]:
+    """Return unique raster start times newer than the given timestamp."""
+    after_time = datetime.fromtimestamp(after_time_ms / 1000, timezone.utc)
     params = {
-        "where": "1=1",
+        "where": f"start_time > TIMESTAMP '{after_time:%Y-%m-%d %H:%M:%S}'",
         "outFields": "start_time,name",
         "returnGeometry": "false",
         "orderByFields": "start_time ASC",
@@ -80,6 +81,11 @@ def list_frame_times() -> List[int]:
     resp = requests.get(QUERY_URL, params=params, timeout=30)
     resp.raise_for_status()
     data = resp.json()
+    if "error" in data:
+        error = data["error"]
+        raise RuntimeError(
+            f"NOAA timestamp query failed: {error.get('message', error)}"
+        )
     times = []
     seen = set()
     for feature in data.get("features", []):
@@ -158,9 +164,12 @@ def make(limit=None):
         if time_ms < cutoff:
             del _FRAME_CACHE[time_ms]
 
-    all_times = list_frame_times()
-    times = [time_ms for time_ms in all_times if time_ms >= cutoff]
     most_recent_time = max(_FRAME_CACHE, default=0)
+    new_times = list_frame_times(max(cutoff, most_recent_time))
+    times = sorted(
+        time_ms for time_ms in set(_FRAME_CACHE).union(new_times)
+        if time_ms >= cutoff
+    )
     if limit and len(times) > limit:
         if limit == 1:
             times = [times[-1]]
@@ -176,7 +185,7 @@ def make(limit=None):
         futures = [
             pool.submit(download, time_ms)
             for time_ms in times
-            if time_ms > most_recent_time and time_ms not in _FRAME_CACHE
+            if time_ms > most_recent_time
         ]
         print(f"Fetching {len(futures)} archive frames")
         for future in as_completed(futures):

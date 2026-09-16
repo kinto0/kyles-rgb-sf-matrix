@@ -3,7 +3,7 @@
 import make_image
 
 FRAME_HOLD_SEC = 0.4
-REFRESH_INTERVAL_SEC = 10 * 60
+REFRESH_INTERVAL_SEC = 2 * 60
 
 
 def load_frames(limit=None):
