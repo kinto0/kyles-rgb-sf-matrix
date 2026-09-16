@@ -41,21 +41,49 @@ _INSECURE_TLS_WARNED = False
 
 
 def _noaa_get(url, **kwargs):
-    """Fetch NOAA data, tolerating its currently incomplete TLS chain."""
+    """Fetch NOAA data with bounded retries for transient failures."""
     global _INSECURE_TLS_WARNED
 
+    retries = kwargs.pop("retries", 3)
+    retry_json_errors = kwargs.pop("retry_json_errors", False)
     verify = os.environ.get("NOAA_CA_BUNDLE", True)
-    try:
-        return requests.get(url, verify=verify, **kwargs)
-    except requests.exceptions.SSLError:
-        if not _INSECURE_TLS_WARNED:
-            print(
-                "NOAA certificate chain is incomplete; retrying without TLS "
-                "verification. Set NOAA_CA_BUNDLE to a trusted CA bundle to "
-                "avoid this fallback."
-            )
-            _INSECURE_TLS_WARNED = True
-        return requests.get(url, verify=False, **kwargs)
+    retry_statuses = {429, 500, 502, 503, 504}
+    for attempt in range(retries):
+        try:
+            response = requests.get(url, verify=verify, **kwargs)
+            if response.status_code in retry_statuses:
+                message = f"HTTP {response.status_code}"
+            elif retry_json_errors:
+                data = response.json()
+                if "error" in data:
+                    error = data["error"]
+                    message = error.get("message", error)
+                else:
+                    return response
+            else:
+                return response
+        except requests.exceptions.SSLError:
+            if verify is not False:
+                if not _INSECURE_TLS_WARNED:
+                    print(
+                        "NOAA certificate chain is incomplete; retrying without TLS "
+                        "verification. Set NOAA_CA_BUNDLE to a trusted CA bundle to "
+                        "avoid this fallback."
+                    )
+                    _INSECURE_TLS_WARNED = True
+                verify = False
+                continue
+            raise
+        except (requests.RequestException, ValueError) as error:
+            if attempt == retries - 1:
+                raise
+            message = str(error)
+        if attempt == retries - 1:
+            if retry_json_errors:
+                raise RuntimeError(f"NOAA request failed: {message}")
+            return response
+        print(f"NOAA request failed: {message}; retrying")
+        time.sleep(2 ** attempt)
 
 # 3x5 digits for a 64x32 panel
 _DIGITS = {
@@ -98,14 +126,14 @@ def list_frame_times(after_time_ms: int) -> List[int]:
         "f": "json",
         "resultRecordCount": 1000,
     }
-    resp = _noaa_get(QUERY_URL, params=params, timeout=30)
+    resp = _noaa_get(
+        QUERY_URL,
+        params=params,
+        timeout=30,
+        retry_json_errors=True,
+    )
     resp.raise_for_status()
     data = resp.json()
-    if "error" in data:
-        error = data["error"]
-        raise RuntimeError(
-            f"NOAA timestamp query failed: {error.get('message', error)}"
-        )
     times = []
     seen = set()
     for feature in data.get("features", []):
