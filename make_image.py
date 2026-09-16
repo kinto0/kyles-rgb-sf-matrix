@@ -16,6 +16,7 @@ temporarily restarting; retry after a few seconds.
 
 from typing import List
 import math
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -36,6 +37,25 @@ RETENTION_HOURS = 3
 
 # Keep fetched images available for refreshes without writing them to disk.
 _FRAME_CACHE = {}
+_INSECURE_TLS_WARNED = False
+
+
+def _noaa_get(url, **kwargs):
+    """Fetch NOAA data, tolerating its currently incomplete TLS chain."""
+    global _INSECURE_TLS_WARNED
+
+    verify = os.environ.get("NOAA_CA_BUNDLE", True)
+    try:
+        return requests.get(url, verify=verify, **kwargs)
+    except requests.exceptions.SSLError:
+        if not _INSECURE_TLS_WARNED:
+            print(
+                "NOAA certificate chain is incomplete; retrying without TLS "
+                "verification. Set NOAA_CA_BUNDLE to a trusted CA bundle to "
+                "avoid this fallback."
+            )
+            _INSECURE_TLS_WARNED = True
+        return requests.get(url, verify=False, **kwargs)
 
 # 3x5 digits for a 64x32 panel
 _DIGITS = {
@@ -78,7 +98,7 @@ def list_frame_times(after_time_ms: int) -> List[int]:
         "f": "json",
         "resultRecordCount": 1000,
     }
-    resp = requests.get(QUERY_URL, params=params, timeout=30)
+    resp = _noaa_get(QUERY_URL, params=params, timeout=30)
     resp.raise_for_status()
     data = resp.json()
     if "error" in data:
@@ -111,7 +131,7 @@ def fetch_frame(bbox: str, time_ms: int) -> Image.Image:
         "f": "image",
         "time": time_ms,
     }
-    resp = requests.get(EXPORT_URL, params=params, timeout=30)
+    resp = _noaa_get(EXPORT_URL, params=params, timeout=30)
     resp.raise_for_status()
     img = Image.open(BytesIO(resp.content)).convert("RGB")
     return img.resize((OUT_W, OUT_H), Image.LANCZOS)
