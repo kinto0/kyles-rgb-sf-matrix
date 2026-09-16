@@ -195,7 +195,7 @@ def make(limit=None):
                 print(e)
                 continue
             _FRAME_CACHE[time_ms] = img
-            print(f"Cached frame {time_ms}")
+            print(f"Loaded frame {time_ms}")
 
     frames = []
     for t in times:

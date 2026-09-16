@@ -27,7 +27,6 @@ while True:
     refresh_deadline = time.monotonic() + playback.REFRESH_INTERVAL_SEC
     while time.monotonic() < refresh_deadline:
         for i, image in enumerate(frames):
-            print(f"switching frames {i} of {len(frames)}")
             canvas.SetImage(image, 0, 0)
             canvas = matrix.SwapOnVSync(canvas)
             if i == len(frames) - 1:
