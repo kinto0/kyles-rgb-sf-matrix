@@ -24,8 +24,8 @@ while True:
         time.sleep(5)
         continue
 
-    for _ in range(playback.PLAYS_BEFORE_REFRESH):
-        print(f"playing {playback.PLAYS_BEFORE_REFRESH} times")
+    refresh_deadline = time.monotonic() + playback.REFRESH_INTERVAL_SEC
+    while time.monotonic() < refresh_deadline:
         for i, image in enumerate(frames):
             print(f"switching frames {i} of {len(frames)}")
             canvas.SetImage(image, 0, 0)
@@ -34,3 +34,5 @@ while True:
                 time.sleep(playback.FRAME_HOLD_SEC * 3)
             else:
                 time.sleep(playback.FRAME_HOLD_SEC)
+            if time.monotonic() >= refresh_deadline:
+                break

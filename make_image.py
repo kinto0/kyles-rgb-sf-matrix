@@ -14,10 +14,9 @@ our control -- if you get an error/blank response, the service may be
 temporarily restarting; retry after a few seconds.
 """
 
-from datetime import timedelta
 from typing import List
 import math
-import os
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from io import BytesIO
@@ -33,8 +32,10 @@ LAT, LON = 37.7749, -122.4194   # San Francisco
 OUT_W, OUT_H = 64, 32            # (width, height) of final image
 HALF_WIDTH_KM = 14               # real-world half-width of the crop
 HALF_HEIGHT_KM = 7               # real-world half-height (2x width, matches OUT_W:OUT_H)
-OUTFILE = "sf_geocolor.png"
-FRAMES_DIR = "frames"
+RETENTION_HOURS = 3
+
+# Keep fetched images available for refreshes without writing them to disk.
+_FRAME_CACHE = {}
 
 # 3x5 digits for a 64x32 panel
 _DIGITS = {
@@ -135,37 +136,31 @@ def overlay_time(img: Image.Image, time_ms: int) -> Image.Image:
     text = when.strftime("%H:%M")
     pixels = stamped.load()
     for paint_outline in (True, False):
-        x, y = 1, 25
+        x, y = 46, 26
         for ch in text:
             x += _blit_glyph(pixels, x, y, ch, (255, 255, 255), (0, 0, 0), paint_outline) + 1
     return stamped
 
 
 def load_saved_frames():
-    """Load previously saved frames from disk (used by matrix.py skip mode)."""
-    if not os.path.isdir(FRAMES_DIR):
-        if os.path.exists(OUTFILE):
-            return [(Image.open(OUTFILE).convert("RGB"), 0)]
-        return []
-    frames = []
-    for name in sorted(os.listdir(FRAMES_DIR)):
-        if not name.endswith(".png"):
-            continue
-        try:
-            time_ms = int(os.path.splitext(name)[0])
-        except ValueError:
-            continue
-        path = os.path.join(FRAMES_DIR, name)
-        frames.append((Image.open(path).convert("RGB"), time_ms))
-    return frames
+    """Return every frame currently held in the in-memory cache."""
+    return [
+        (_FRAME_CACHE[time_ms], time_ms)
+        for time_ms in sorted(_FRAME_CACHE)
+    ]
 
 
 def make(limit=None):
     bbox = bbox_for_point(LAT, LON, HALF_WIDTH_KM, HALF_HEIGHT_KM)
-    os.makedirs(FRAMES_DIR, exist_ok=True)
+
+    cutoff = int((time.time() - RETENTION_HOURS * 60 * 60) * 1000)
+    for time_ms in list(_FRAME_CACHE):
+        if time_ms < cutoff:
+            del _FRAME_CACHE[time_ms]
 
     all_times = list_frame_times()
-    times = all_times
+    times = [time_ms for time_ms in all_times if time_ms >= cutoff]
+    most_recent_time = max(_FRAME_CACHE, default=0)
     if limit and len(times) > limit:
         if limit == 1:
             times = [times[-1]]
@@ -173,16 +168,16 @@ def make(limit=None):
             idxs = [int(round(i * (len(times) - 1) / float(limit - 1))) for i in range(limit)]
             times = [times[i] for i in idxs]
 
-    frames_by_time = {}
-
     def download(time_ms: int):
         img = fetch_frame(bbox, time_ms)
         return time_ms, img
 
-    four_hours_ago = (datetime.now() - timedelta(hours=4)).timestamp() * 1000
-    times_in_last_hour = [t for t in times if t > four_hours_ago]
     with ThreadPoolExecutor(max_workers=8) as pool:
-        futures = [pool.submit(download, t) for t in times_in_last_hour]
+        futures = [
+            pool.submit(download, time_ms)
+            for time_ms in times
+            if time_ms > most_recent_time and time_ms not in _FRAME_CACHE
+        ]
         print(f"Fetching {len(futures)} archive frames")
         for future in as_completed(futures):
             try:
@@ -190,24 +185,13 @@ def make(limit=None):
             except Exception as e:
                 print(e)
                 continue
-            frames_by_time[time_ms] = img
-            img.save(os.path.join(FRAMES_DIR, f"{time_ms}.png"))
-            print(f"Saved frame {time_ms}")
-    keep = {f"{t}.png" for t in all_times}
-    for name in os.listdir(FRAMES_DIR):
-        if name.endswith(".png") and name not in keep:
-            os.remove(os.path.join(FRAMES_DIR, name))
+            _FRAME_CACHE[time_ms] = img
+            print(f"Cached frame {time_ms}")
 
     frames = []
     for t in times:
-        img = frames_by_time.get(t)
-        if img is None:
-            path = os.path.join(FRAMES_DIR, f"{t}.png")
-            if os.path.exists(path):
-                img = Image.open(path).convert("RGB")
+        img = _FRAME_CACHE.get(t)
         if img is not None:
             frames.append((img, t))
-    if frames:
-        frames[-1][0].save(OUTFILE)
-        print(f"Saved {OUTFILE} ({len(frames)} frames, size {frames[-1][0].size})")
+    print(f"Using {len(frames)} frames from the last {RETENTION_HOURS} hours")
     return frames

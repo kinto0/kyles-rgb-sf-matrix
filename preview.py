@@ -5,7 +5,6 @@ Plays the same frames/time overlay as matrix.py in a scaled pixel window,
 and writes preview.html so you can scrub the animation in a browser.
 
   .venv/bin/python preview.py
-  .venv/bin/python preview.py skip
   .venv/bin/python preview.py --limit 24
 """
 
@@ -25,7 +24,6 @@ PREVIEW_HTML = "preview.html"
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Emulate the LED matrix animation")
-    parser.add_argument("mode", nargs="?", help="pass 'skip' to reuse saved frames")
     parser.add_argument("--limit", type=int, default=None, help="max frames to fetch/play")
     parser.add_argument("--scale", type=int, default=SCALE, help="pixel size in the window")
     parser.add_argument("--html", default=PREVIEW_HTML, help="path for the browser preview")
@@ -144,8 +142,7 @@ def run_window(frames, scale, hold_sec):
 
 def main():
     args = parse_args()
-    skip = args.mode == "skip"
-    frames = playback.prepare(playback.load_frames(skip=skip, limit=args.limit))
+    frames = playback.prepare(playback.load_frames(limit=args.limit))
     if not frames:
         raise SystemExit("no frames to display")
 
