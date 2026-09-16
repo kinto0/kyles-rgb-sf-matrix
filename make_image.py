@@ -36,7 +36,7 @@ HALF_HEIGHT_KM = 7               # real-world half-height (2x width, matches OUT
 RETENTION_HOURS = 3
 
 # Keep fetched images available for refreshes without writing them to disk.
-_FRAME_CACHE = {}
+FRAMES = {}
 _INSECURE_TLS_WARNED = False
 
 
@@ -197,10 +197,10 @@ def overlay_time(img: Image.Image, time_ms: int) -> Image.Image:
 
 
 def load_saved_frames():
-    """Return every frame currently held in the in-memory cache."""
+    """Return every frame currently held in memory."""
     return [
-        (_FRAME_CACHE[time_ms], time_ms)
-        for time_ms in sorted(_FRAME_CACHE)
+        (FRAMES[time_ms], time_ms)
+        for time_ms in sorted(FRAMES)
     ]
 
 
@@ -208,14 +208,13 @@ def make(limit=None):
     bbox = bbox_for_point(LAT, LON, HALF_WIDTH_KM, HALF_HEIGHT_KM)
 
     cutoff = int((time.time() - RETENTION_HOURS * 60 * 60) * 1000)
-    for time_ms in list(_FRAME_CACHE):
+    for time_ms in list(FRAMES):
         if time_ms < cutoff:
-            del _FRAME_CACHE[time_ms]
+            del FRAMES[time_ms]
 
-    most_recent_time = max(_FRAME_CACHE, default=0)
-    new_times = list_frame_times(max(cutoff, most_recent_time))
+    new_times = list_frame_times(cutoff)
     times = sorted(
-        time_ms for time_ms in set(_FRAME_CACHE).union(new_times)
+        time_ms for time_ms in set(FRAMES).union(new_times)
         if time_ms >= cutoff
     )
     if limit and len(times) > limit:
@@ -233,7 +232,7 @@ def make(limit=None):
         futures = [
             pool.submit(download, time_ms)
             for time_ms in times
-            if time_ms > most_recent_time
+            if time_ms not in FRAMES
         ]
         print(f"Fetching {len(futures)} archive frames")
         for future in as_completed(futures):
@@ -242,12 +241,12 @@ def make(limit=None):
             except Exception as e:
                 print(e)
                 continue
-            _FRAME_CACHE[time_ms] = img
+            FRAMES[time_ms] = img
             print(f"Loaded frame {time_ms}")
 
     frames = []
     for t in times:
-        img = _FRAME_CACHE.get(t)
+        img = FRAMES.get(t)
         if img is not None:
             frames.append((img, t))
     print(f"Using {len(frames)} frames from the last {RETENTION_HOURS} hours")
