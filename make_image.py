@@ -31,8 +31,10 @@ QUERY_URL = f"{ARCHIVE_URL}/query"
 
 LAT, LON = 37.7749, -122.4194   # San Francisco
 OUT_W, OUT_H = 64, 32            # (width, height) of final image
-HALF_WIDTH_KM = 14               # real-world half-width of the crop
-HALF_HEIGHT_KM = 7               # real-world half-height (2x width, matches OUT_W:OUT_H)
+# Match the 64x32 panel to the approximately 1 km source pixels. Longitude
+# pixels are narrower at San Francisco's latitude than latitude pixels.
+HALF_WIDTH_KM = 25               # approximately 64 source pixels across
+HALF_HEIGHT_KM = 16              # approximately 32 source pixels high
 RETENTION_HOURS = 3
 
 # Keep fetched images available for refreshes without writing them to disk.
