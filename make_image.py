@@ -15,6 +15,7 @@ temporarily restarting; retry after a few seconds.
 """
 
 from typing import List
+import json
 import math
 import os
 import time
@@ -117,12 +118,12 @@ def bbox_for_point(lat: float, lon: float, half_w_km: float, half_h_km: float) -
     return f"{xmin},{ymin},{xmax},{ymax}"
 
 
-def list_frame_times(after_time_ms: int) -> List[int]:
-    """Return unique raster start times newer than the given timestamp."""
+def list_frame_times(after_time_ms: int) -> List[tuple]:
+    """Return unique ``(start_time, objectid)`` records newer than a timestamp."""
     after_time = datetime.fromtimestamp(after_time_ms / 1000, timezone.utc)
     params = {
         "where": f"start_time > TIMESTAMP '{after_time:%Y-%m-%d %H:%M:%S}'",
-        "outFields": "start_time,name",
+        "outFields": "start_time,name,objectid",
         "returnGeometry": "false",
         "orderByFields": "start_time ASC",
         "f": "json",
@@ -147,11 +148,17 @@ def list_frame_times(after_time_ms: int) -> List[int]:
         if "overview" in name.lower():
             continue
         seen.add(t)
-        times.append(t)
+        object_id = attrs.get("objectid")
+        if object_id is not None:
+            times.append((t, object_id))
     return times
 
 
-def fetch_frame(bbox: str, time_ms: int) -> Image.Image:
+def fetch_frame(bbox: str, time_ms: int, object_id: int) -> Image.Image:
+    mosaic_rule = {
+        "mosaicMethod": "esriMosaicLockRaster",
+        "lockRasterIds": [object_id],
+    }
     params = {
         "bbox": bbox,
         "bboxSR": 4326,
@@ -159,7 +166,7 @@ def fetch_frame(bbox: str, time_ms: int) -> Image.Image:
         "imageSR": 4326,
         "format": "png",
         "f": "image",
-        "time": time_ms,
+        "mosaicRule": json.dumps(mosaic_rule),
     }
     resp = _noaa_get(EXPORT_URL, params=params, timeout=30)
     resp.raise_for_status()
@@ -214,7 +221,9 @@ def make(limit=None):
         if time_ms < cutoff:
             del FRAMES[time_ms]
 
-    new_times = list_frame_times(cutoff)
+    records = list_frame_times(cutoff)
+    raster_ids = dict(records)
+    new_times = [time_ms for time_ms, _ in records]
     times = sorted(
         time_ms for time_ms in set(FRAMES).union(new_times)
         if time_ms >= cutoff
@@ -227,7 +236,7 @@ def make(limit=None):
             times = [times[i] for i in idxs]
 
     def download(time_ms: int):
-        img = fetch_frame(bbox, time_ms)
+        img = fetch_frame(bbox, time_ms, raster_ids[time_ms])
         return time_ms, img
 
     with ThreadPoolExecutor(max_workers=8) as pool:
