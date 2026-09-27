@@ -30,7 +30,7 @@ ARCHIVE_URL = "https://satellitemaps.nesdis.noaa.gov/arcgis/rest/services/MERGED
 EXPORT_URL = f"{ARCHIVE_URL}/exportImage"
 QUERY_URL = f"{ARCHIVE_URL}/query"
 
-LAT, LON = 37.7749, -122.4194   # San Francisco
+LAT, LON = 37.7299, -122.4194   # San Francisco, view shifted about 5 pixels up
 OUT_W, OUT_H = 64, 32            # (width, height) of final image
 # Match the 64x32 panel to the approximately 1 km source pixels. Longitude
 # pixels are narrower at San Francisco's latitude than latitude pixels.
