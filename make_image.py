@@ -37,6 +37,8 @@ OUT_W, OUT_H = 64, 32            # (width, height) of final image
 HALF_WIDTH_KM = 25               # approximately 64 source pixels across
 HALF_HEIGHT_KM = 16              # approximately 32 source pixels high
 RETENTION_HOURS = 3
+DAYLIGHT_GAMMA = 0.75
+DAYLIGHT_FULL_STRENGTH_ELEVATION = 10.0
 
 # Keep fetched images available for refreshes without writing them to disk.
 FRAMES = {}
@@ -171,7 +173,55 @@ def fetch_frame(bbox: str, time_ms: int, object_id: int) -> Image.Image:
     resp = _noaa_get(EXPORT_URL, params=params, timeout=30)
     resp.raise_for_status()
     img = Image.open(BytesIO(resp.content)).convert("RGB")
-    return img.resize((OUT_W, OUT_H), Image.LANCZOS)
+    img = img.resize((OUT_W, OUT_H), Image.LANCZOS)
+    return normalize_daylight(img, time_ms)
+
+
+def solar_elevation_degrees(time_ms: int) -> float:
+    when = datetime.fromtimestamp(time_ms / 1000, timezone.utc)
+    utc_hour = when.hour + when.minute / 60.0 + when.second / 3600.0
+    year_length = when.replace(month=12, day=31).timetuple().tm_yday
+    fractional_year = 2 * math.pi / year_length * (
+        when.timetuple().tm_yday - 1 + (utc_hour - 12) / 24.0
+    )
+    equation_of_time = 229.18 * (
+        0.000075
+        + 0.001868 * math.cos(fractional_year)
+        - 0.032077 * math.sin(fractional_year)
+        - 0.014615 * math.cos(2 * fractional_year)
+        - 0.040849 * math.sin(2 * fractional_year)
+    )
+    declination = (
+        0.006918
+        - 0.399912 * math.cos(fractional_year)
+        + 0.070257 * math.sin(fractional_year)
+        - 0.006758 * math.cos(2 * fractional_year)
+        + 0.000907 * math.sin(2 * fractional_year)
+        - 0.002697 * math.cos(3 * fractional_year)
+        + 0.00148 * math.sin(3 * fractional_year)
+    )
+    solar_minutes = (utc_hour * 60 + equation_of_time + 4 * LON) % 1440
+    hour_angle = math.radians(solar_minutes / 4 - 180)
+    latitude = math.radians(LAT)
+    cosine_zenith = (
+        math.sin(latitude) * math.sin(declination)
+        + math.cos(latitude) * math.cos(declination) * math.cos(hour_angle)
+    )
+    zenith = math.degrees(math.acos(max(-1.0, min(1.0, cosine_zenith))))
+    return 90 - zenith
+
+
+def normalize_daylight(img: Image.Image, time_ms: int) -> Image.Image:
+    sun_elevation = solar_elevation_degrees(time_ms)
+    daylight_strength = max(
+        0.0,
+        min(1.0, sun_elevation / DAYLIGHT_FULL_STRENGTH_ELEVATION),
+    )
+    if daylight_strength == 0:
+        return img
+    gamma = 1 - (1 - DAYLIGHT_GAMMA) * daylight_strength
+    lut = [round(255 * (value / 255.0) ** gamma) for value in range(256)]
+    return img.point(lut * 3)
 
 
 def _blit_glyph(pixels, x, y, glyph, color, outline, paint_outline):
