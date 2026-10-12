@@ -23,15 +23,17 @@ status_font = ImageFont.load_default()
 status_draw.text((4, 4), "NOAA FEED", fill=(255, 70, 40), font=status_font)
 status_draw.text((4, 18), "NO FRAMES", fill=(255, 200, 0), font=status_font)
 
-print("Press CTRL-C to stop.")
+playback.make_image.log("Press CTRL-C to stop.")
 empty_retry_interval = playback.REFRESH_INTERVAL_SEC
 while True:
-    print("loading frames")
+    playback.make_image.log("Loading frames")
     frames = playback.prepare(playback.load_frames())
     if not frames:
         canvas.SetImage(no_frames_image, 0, 0)
         canvas = matrix.SwapOnVSync(canvas)
-        print("no frames to display; retrying in {} seconds".format(empty_retry_interval))
+        playback.make_image.log(
+            "No frames to display; retrying in {} seconds".format(empty_retry_interval)
+        )
         time.sleep(empty_retry_interval)
         empty_retry_interval = min(
             empty_retry_interval * 2,

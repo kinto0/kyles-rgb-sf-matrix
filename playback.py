@@ -10,7 +10,7 @@ def load_frames(limit=None):
     try:
         frames = make_image.make(limit=limit)
     except Exception as e:
-        print(e)
+        make_image.log(e)
         frames = make_image.load_saved_frames()
     if limit and len(frames) > limit:
         step = max(1, len(frames) // limit)

@@ -16,8 +16,10 @@ temporarily restarting; retry after a few seconds.
 
 from typing import List
 import json
+import logging
 import math
 import os
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -43,6 +45,18 @@ DAYLIGHT_FULL_STRENGTH_ELEVATION = 10.0
 # Keep fetched images available for refreshes without writing them to disk.
 FRAMES = {}
 _INSECURE_TLS_WARNED = False
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S%z",
+    stream=sys.stdout,
+)
+_LOGGER = logging.getLogger(__name__)
+
+
+def log(message):
+    _LOGGER.info(message)
 
 
 def _noaa_get(url, **kwargs):
@@ -70,7 +84,7 @@ def _noaa_get(url, **kwargs):
         except requests.exceptions.SSLError:
             if verify is not False:
                 if not _INSECURE_TLS_WARNED:
-                    print(
+                    log(
                         "NOAA certificate chain is incomplete; retrying without TLS "
                         "verification. Set NOAA_CA_BUNDLE to a trusted CA bundle to "
                         "avoid this fallback."
@@ -87,7 +101,7 @@ def _noaa_get(url, **kwargs):
             if retry_json_errors:
                 raise RuntimeError(f"NOAA request failed: {message}")
             return response
-        print(f"NOAA request failed: {message}; retrying")
+        log(f"NOAA request failed: {message}; retrying")
         time.sleep(2 ** attempt)
 
 # 3x5 digits for a 64x32 panel
@@ -295,20 +309,20 @@ def make(limit=None):
             for time_ms in times
             if time_ms not in FRAMES
         ]
-        print(f"Fetching {len(futures)} archive frames")
+        log(f"Fetching {len(futures)} archive frames")
         for future in as_completed(futures):
             try:
                 time_ms, img = future.result()
             except Exception as e:
-                print(e)
+                log(e)
                 continue
             FRAMES[time_ms] = img
-            print(f"Loaded frame {time_ms}")
+            log(f"Loaded frame {time_ms}")
 
     frames = []
     for t in times:
         img = FRAMES.get(t)
         if img is not None:
             frames.append((img, t))
-    print(f"Using {len(frames)} frames from the last {RETENTION_HOURS} hours")
+    log(f"Using {len(frames)} frames from the last {RETENTION_HOURS} hours")
     return frames

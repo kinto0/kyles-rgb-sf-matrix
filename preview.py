@@ -100,7 +100,9 @@ def write_html(frames, path, hold_sec, scale):
     )
     with open(path, "w") as f:
         f.write(html)
-    print("Wrote", os.path.abspath(path), "({} frames)".format(len(frames)))
+    make_image.log(
+      "Wrote {} ({} frames)".format(os.path.abspath(path), len(frames))
+    )
 
 
 def run_window(frames, scale, hold_sec):
@@ -108,7 +110,7 @@ def run_window(frames, scale, hold_sec):
         import tkinter as tk
         from PIL import Image, ImageTk
     except Exception as e:
-        print("Tk preview unavailable:", e)
+        make_image.log("Tk preview unavailable: {}".format(e))
         return False
 
     scaled = [
@@ -135,7 +137,7 @@ def run_window(frames, scale, hold_sec):
         root.after(int(hold_sec * 1000), tick)
 
     tick()
-    print("Close the window to stop.")
+    make_image.log("Close the window to stop.")
     root.mainloop()
     return True
 
